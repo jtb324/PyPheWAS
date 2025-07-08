@@ -15,7 +15,7 @@ from tqdm import tqdm
 from typing import Any
 import statsmodels.formula.api as smf
 from statsmodels.discrete.discrete_model import BinaryResults
-from statsmodels.tools.sm_exceptions import PerfectSeparationError, ConvergenceWarning
+from statsmodels.tools.sm_exceptions import PerfectSeparationError, ConvergenceWarning, PerfectSeparationWarning
 from numpy.linalg import LinAlgError
 import multiprocessing as mp
 import warnings
@@ -25,6 +25,7 @@ from pyphewas.parser import generate_parser
 # We want to treat the Runtime warning like a error so that we can catch it because it generate indicates the perfect separation error
 warnings.filterwarnings("error", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
+warnings.filterwarnings("error", category=PerfectSeparationWarning)
 # import pandas as pd
 # warnings.formatwarning(category=ConvergenceWarning)
 
@@ -138,7 +139,7 @@ def run_logit_regression(
         # run the regression
         try:
             result = smf.logit(analysis_str, data=covariates_df).fit(disp=0)
-        except (LinAlgError, PerfectSeparationError, RuntimeWarning) as err:
+        except (LinAlgError, PerfectSeparationError, RuntimeWarning, PerfectSeparationWarning) as err:
             # If a perfect separation error occurs then we
             if (
                 "Singular matrix" in str(err)
