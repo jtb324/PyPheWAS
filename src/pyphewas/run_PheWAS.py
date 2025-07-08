@@ -68,16 +68,30 @@ def _format_results(results: BinaryResults) -> dict[str, Any]:
     )
     result_dictionary["converged"] = converged_status
 
-    # generate a table with the beta, stderr, and pvalue for each variable in the model
-    for line in results.summary().tables[1].as_csv().split("\n")[1:]:
-        variable, beta, stderr, z, pvalue, *_ = line.strip().replace(" ", "").split(",")
-        # We don't need to report the values for the intercept
-        if variable.lower() == "intercept":
+    # generate a table with the beta, stderr, and pvalue for each variable in the model #TODO: refactor
+    for key, pvalue in results.pvalues.items():
+        # variable, beta, stderr, z, pvalue, *_ = line.strip().replace(" ", "").split(",")
+        # # We don't need to report the values for the intercept
+        if key == "Intercept":
             continue
         else:
-            result_dictionary[f"{variable}_pvalue"] = pvalue
-            result_dictionary[f"{variable}_beta"] = beta
-            result_dictionary[f"{variable}_stderr"] = stderr
+            result_dictionary[f"{key}_pvalue"] = pvalue
+    for key, beta in results.params.items():
+        # variable, beta, stderr, z, pvalue, *_ = line.strip().replace(" ", "").split(",")
+        # # We don't need to report the values for the intercept
+        if key == "Intercept":
+            continue
+        else:
+            result_dictionary[f"{key}_beta"] = beta
+    for key, se in results.bse.items():
+        # variable, beta, stderr, z, pvalue, *_ = line.strip().replace(" ", "").split(",")
+        # # We don't need to report the values for the intercept
+        if key == "Intercept":
+            continue
+        else:
+            result_dictionary[f"{key}_stderr"] = se
+        #     result_dictionary[f"{variable}_beta"] = beta
+        #     result_dictionary[f"{variable}_stderr"] = stderr
 
     return result_dictionary
 

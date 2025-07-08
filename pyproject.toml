@@ -18,19 +18,23 @@ build-backend = "pdm.backend"
 [project.scripts]
 pyphewas = "pyphewas.run_PheWAS:main"
 
-[tool.pdm]
-distribution = true
-
 [tool.commitizen]
 name = "cz_conventional_commits"
 tag_format = "$version"
 version_scheme = "semver2"
 version_provider = "pep621"
+
+[tool.pdm]
+distribution = true
+
+[tool.pdm.build]
+package-dir = "src"
 [dependency-groups]
 dev = [
     "commitizen>=4.8.3",
     "black>=25.1.0",
+    "ipykernel>=6.29.5",
+    "pyarrow>=20.0.0",
+    "scalene>=1.5.19",
 ]
 
-[tool.pdm.build]
-package-dir = "src"
