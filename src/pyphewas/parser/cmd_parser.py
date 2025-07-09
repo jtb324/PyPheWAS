@@ -40,7 +40,7 @@ def generate_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--covariate-list",
         nargs="*",
-        help="list of covariates to use in the analysis. These variables have to be spelled exactly like how they are in the covariates file.",
+        help="list of covariates to use in the analysis. These variables have to be spelled exactly like how they are in the covariates file. If there is a sex or gender column in the file, it is assuming that the values in the column are either 0 or 1",
     )
 
     parser.add_argument(
@@ -84,6 +84,33 @@ def generate_parser() -> argparse.ArgumentParser:
         required=True,
         choices=["phecodeX", "phecode1.2", "phecodeX_who"],
         help="What version of phecodes to use for the analysis. The options have to be spelled the same as they are here. Allowed choices: '%(choices)s'",
+    )
+
+    parser.add_argument(
+        "--flip-predictor-and-outcome",
+        default=False,
+        help="Optional flag to control the behavior of what is the predictor and what is the outcome. By default, our model assumes the outcome is the phecode status and the predictor is or provided case/control status. If this flag is provided then the outcome becomes our case/control status and the predictor will be the phecode status %(default)s",
+        action="store_true",
+    )
+
+    parser.add_argument(
+        "--run-sex-specific",
+        type=str,
+        choices=["male-only", "female-only"],
+        help="Flag that allows the user to run the analysis sex specific. By default the PheWAS will be sex agonistic, allowing the user to adjust for sex using covariates. If the user provides a value then the program will filter to either males or females based on the value provided. %(choices)s",
+    )
+
+    parser.add_argument(
+        "--male-as-one",
+        default=True,
+        help="Flag indicating whether males are labeled as 1 and females are labeled as 0 or vice versa.",
+        action="store_true",
+    )
+
+    parser.add_argument(
+        "--sex-col",
+        type=str,
+        help="Column name of the column in the covariates file that contains information about sex for each individual. This argument only needs to be provided if the user is using the '--run-sex-specific' flag. If this argument is passed and the '--run-sex-specific' flag is not provided then the program will ignore this flag. If there are people with missing sex values in the covariates file then they will be implicited filtered out of the analysis",
     )
 
     return parser

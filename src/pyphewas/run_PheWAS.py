@@ -15,7 +15,11 @@ from tqdm import tqdm
 from typing import Any
 import statsmodels.formula.api as smf
 from statsmodels.discrete.discrete_model import BinaryResults
-from statsmodels.tools.sm_exceptions import PerfectSeparationError, ConvergenceWarning, PerfectSeparationWarning
+from statsmodels.tools.sm_exceptions import (
+    PerfectSeparationError,
+    ConvergenceWarning,
+    PerfectSeparationWarning,
+)
 from numpy.linalg import LinAlgError
 import multiprocessing as mp
 import warnings
@@ -32,24 +36,28 @@ warnings.filterwarnings("error", category=PerfectSeparationWarning)
 
 @dataclass
 class Phecode:
-    cases: list[str] = field(
-        default_factory=list
-    )  # We are not doing exclusions so we can assume that individuals who are no cases are controls
+    cases: list[str] = field(default_factory=list)
+    exclusions: list[str] = field(default_factory=list)
 
 
-def read_in_cases(counts_file: Path, min_phecode_count: int) -> dict[str, Phecode]:
+def read_in_cases_and_exclusions(
+    counts_file: Path, min_phecode_count: int
+) -> dict[str, Phecode]:
 
     return_dict = {}
 
     with xopen(counts_file, "r") as counts:
-        header = next(counts)
+        _ = next(counts)  # skip header line
         for line in counts:
             person_id, phecode, count = line.strip().split(",")
             if int(count) >= min_phecode_count:
-                cases_obj = return_dict.setdefault(
-                    phecode, Phecode([])
+                phecode_obj = return_dict.setdefault(
+                    phecode, Phecode()
                 )  # We can see if there is already a phecode object create for the phecode
-                cases_obj.cases.append(person_id)
+                phecode_obj.cases.append(person_id)
+            elif int(count) == 1:
+                phecode_obj = return_dict.setdefault(phecode, Phecode())
+                phecode_obj.exclusions.append(person_id)
 
     print(f"Read in {len(return_dict)} phecodes from the counts file: {counts_file}")
     return return_dict
@@ -97,49 +105,70 @@ def _format_results(results: BinaryResults) -> dict[str, Any]:
     return result_dictionary
 
 
+def generate_model_str(
+    covar_list: list[str] | None,
+    status_col: str,
+    flip_predictor_and_outcome: bool = False,
+) -> str:
+    # build the model string where the phecode status is the
+    # outcome and the predictor is our case control status. When the
+    # regression code adds the phecode status to the covariate df, it
+    # names it phecode_status so we can assume that is the name of the
+    # column in the model
+    if not flip_predictor_and_outcome:
+        analysis_str = f"phecode_status ~ {status_col}"
+    else:
+        analysis_str = f"{status_col} ~ phecode_status"
+
+    if covar_list:
+        analysis_str = f"{analysis_str} + {' + '.join(covar_list)}"
+
+    return analysis_str
+
+
 def run_logit_regression(
     phecode_info: tuple,
     return_dictionary: DictProxy,
     covariates: pl.DataFrame,
-    covar_list: list[str] | None,
-    status_col: str,
+    analysis_str: str,
     sample_colname: str,
     min_case_count: int,
 ) -> None:
 
-    phecode_name, cases_obj = phecode_info[0]
+    phecode_name, phecode_obj = phecode_info[0]
 
-    if len(cases_obj.cases) >= min_case_count:
-
-        covariates_df = covariates.with_columns(
-            pl.when(pl.col(sample_colname).is_in(cases_obj.cases))
+    if len(phecode_obj.cases) >= min_case_count:
+        covariates_df = covariates.filter(
+            ~pl.col(sample_colname).is_in(phecode_obj.exclusions)
+        ).with_columns(
+            pl.when(pl.col(sample_colname).is_in(phecode_obj.cases))
             .then(1)
             .otherwise(0)
-            .alias("y")
+            .alias("phecode_status")
         )
 
         # lets get the counts of cases and controls (This is verbose but adapted from the
         # stackoverflow answer: https://stackoverflow.com/questions/78057705/is-there-a-simple-way-to-access-a-value-in-a-polars-struct)
         case_count = (
-            covariates_df.select(pl.col("y").value_counts())
-            .filter(pl.col("y").struct["y"] == 1)
+            covariates_df.select(pl.col("phecode_status").value_counts())
+            .filter(pl.col("phecode_status").struct["phecode_status"] == 1)
             .item()["count"]
         )
         control_count = (
-            covariates_df.select(pl.col("y").value_counts())
-            .filter(pl.col("y").struct["y"] == 0)
+            covariates_df.select(pl.col("phecode_status").value_counts())
+            .filter(pl.col("phecode_status").struct["phecode_status"] == 0)
             .item()["count"]
         )
-
-        # build the model string
-        analysis_str = f"y ~ {status_col}"
-        if covar_list:
-            analysis_str = f"{analysis_str} + {' + '.join(covar_list)}"
 
         # run the regression
         try:
             result = smf.logit(analysis_str, data=covariates_df).fit(disp=0)
-        except (LinAlgError, PerfectSeparationError, RuntimeWarning, PerfectSeparationWarning) as err:
+        except (
+            LinAlgError,
+            PerfectSeparationError,
+            RuntimeWarning,
+            PerfectSeparationWarning,
+        ) as err:
             # If a perfect separation error occurs then we
             if (
                 "Singular matrix" in str(err)
@@ -187,7 +216,7 @@ def _write_to_file(
     status_name: str,
     phecode_descriptions: dict[str, str],
     covar_list: list[str],
-    results: dict[str, dict[str, Any]],
+    results: DictProxy[Any, Any],
 ) -> None:
 
     header = _generate_header(status_name, covar_list)
@@ -228,11 +257,37 @@ def read_in_phecode_descriptions(descriptions_filepath: Path) -> dict[str, str]:
     return description_dict
 
 
+def restrict_covars_to_specific_sex(
+    covar_df: pl.DataFrame, sex_option: str, sex_col: str, males_as_one: bool
+) -> pl.DataFrame:
+
+    # lets first set the status for male or female
+    if males_as_one:
+        male_coding = 1
+        female_coding = 0
+    else:
+        male_coding = 0
+        female_coding = 1
+    # Now we can filter to either male only or female only
+    if sex_option == "female_only":
+        output_df = covar_df.filter(pl.col(sex_col) == female_coding)
+    else:
+        output_df = covar_df.filter(pl.col(sex_col) == male_coding)
+
+    return output_df
+
+
 def main() -> None:
 
     parser = generate_parser()
 
     args = parser.parse_args()
+
+    # We need to make sure that if the "--run-sex-specific" flag was provided that also the "--sex-col" flag was provided
+    if args.run_sex_specific and not args.sex_col and not args.male_as_one:
+        parser.error(
+            f"Detected a provided value of {args.run_sex_specific} for the '--run-sex-specific' flag, but a value was not provided for the '--sex-col' flag or the '--male-as-one' flag. All three flags are required to run a sex specific analysis."
+        )
 
     # getting the programs start time
     start_time = datetime.now()
@@ -272,9 +327,15 @@ def main() -> None:
 
     descriptions = read_in_phecode_descriptions(phecode_descriptions)
 
-    phecode_cases = read_in_cases(args.counts, args.min_phecode_count)
+    phecode_cases = read_in_cases_and_exclusions(args.counts, args.min_phecode_count)
 
     covariates_df = pl.read_csv(args.covariate_file)
+
+    if args.run_sex_specific:
+        print("Restricting the covariates file to {args.run_sex_specific}")
+        covariates_df = restrict_covars_to_specific_sex(
+            covariates_df, args.run_sex_specific, args.sex_col, args.male_as_one
+        )
 
     print("initializing multiprocessing" * (min(args.cpus - 1, 1)))
 
@@ -291,14 +352,19 @@ def main() -> None:
         manager = mp.Manager()
         managed_dict = manager.dict()
 
+        # generating the analysis string for the model that will
+        # be passed to the regression
+        model_str = generate_model_str(
+            args.covariate_list, args.status_col, args.flip_predictor_and_outcome
+        )
+
         # running the logistic regression for multiple phecodes
 
         partial_func = partial(
             run_logit_regression,
             return_dictionary=managed_dict,
             covariates=covariates_df.clone(),
-            covar_list=args.covariate_list,
-            status_col=args.status_col,
+            analysis_str=model_str,
             sample_colname=args.sample_col,
             min_case_count=args.min_case_count,
         )
