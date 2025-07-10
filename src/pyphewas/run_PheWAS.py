@@ -14,7 +14,7 @@ import polars as pl
 from tqdm import tqdm
 from typing import Any
 import statsmodels.formula.api as smf
-from statsmodels.discrete.discrete_model import BinaryResults
+from statsmodels.discrete.discrete_model import BinaryResultsWrapper
 from statsmodels.tools.sm_exceptions import (
     PerfectSeparationError,
     ConvergenceWarning,
@@ -55,7 +55,9 @@ def read_in_cases_and_exclusions(
                     phecode, Phecode()
                 )  # We can see if there is already a phecode object create for the phecode
                 phecode_obj.cases.append(person_id)
-            elif int(count) == 1:
+            elif (
+                int(count) == 1 and min_phecode_count != 1
+            ):  # if the min phecode count is 1 then we want to ignore the exclusion criteria
                 phecode_obj = return_dict.setdefault(phecode, Phecode())
                 phecode_obj.exclusions.append(person_id)
 
@@ -63,7 +65,7 @@ def read_in_cases_and_exclusions(
     return return_dict
 
 
-def _format_results(results: BinaryResults) -> dict[str, Any]:
+def _format_results(results: BinaryResultsWrapper) -> dict[str, Any]:
     result_dictionary = {}
     # We need to first get the convered status
     # print(int(observation_count) - case_count)
@@ -79,26 +81,35 @@ def _format_results(results: BinaryResults) -> dict[str, Any]:
 
     # generate a table with the beta, stderr, and pvalue for each variable in the model #TODO: refactor
     for key, pvalue in results.pvalues.items():
+
         # variable, beta, stderr, z, pvalue, *_ = line.strip().replace(" ", "").split(",")
         # # We don't need to report the values for the intercept
         if key == "Intercept":
             continue
-        else:
-            result_dictionary[f"{key}_pvalue"] = pvalue
+        elif (
+            key == "phecode_status"
+        ):  # if the phecode is being used as a predictor then we need to ultimately
+            key = key.split("_")[0]
+
+        result_dictionary[f"{key}_pvalue"] = pvalue
     for key, beta in results.params.items():
         # variable, beta, stderr, z, pvalue, *_ = line.strip().replace(" ", "").split(",")
         # # We don't need to report the values for the intercept
         if key == "Intercept":
             continue
-        else:
-            result_dictionary[f"{key}_beta"] = beta
+        elif key == "phecode_status":
+            key = key.split("_")[0]
+
+        result_dictionary[f"{key}_beta"] = beta
     for key, se in results.bse.items():
         # variable, beta, stderr, z, pvalue, *_ = line.strip().replace(" ", "").split(",")
         # # We don't need to report the values for the intercept
         if key == "Intercept":
             continue
-        else:
-            result_dictionary[f"{key}_stderr"] = se
+        elif key == "phecode_status":
+            key = key.split("_")[0]
+
+        result_dictionary[f"{key}_stderr"] = se
         #     result_dictionary[f"{variable}_beta"] = beta
         #     result_dictionary[f"{variable}_stderr"] = stderr
 
@@ -123,6 +134,7 @@ def generate_model_str(
     if covar_list:
         analysis_str = f"{analysis_str} + {' + '.join(covar_list)}"
 
+    print(f"model being used: {analysis_str}")
     return analysis_str
 
 
@@ -181,10 +193,10 @@ def run_logit_regression(
                 return
             else:
                 raise err
-        except ConvergenceWarning as con_err:
-            print(
-                f"The model for the PheCode, {phecode_name}, failed to converge. This model had {case_count} cases and {control_count} controls."
-            )
+        # except ConvergenceWarning as con_err:
+        #     print(
+        #         f"The model for the PheCode, {phecode_name}, failed to converge. This model had {case_count} cases and {control_count} controls."
+        #     )
 
         formatted_results = _format_results(result)
 
@@ -195,9 +207,19 @@ def run_logit_regression(
         return_dictionary[phecode_name] = formatted_results
 
 
-def _generate_header(status_name: str, covar_list: list[str]) -> str:
+def _generate_header(
+    status_name: str, covar_list: list[str], predictor_output_flipped: bool
+) -> str:
 
-    header_str = "phecode\tphecode_description\tphecode_category\tcase_count\tcontrol_count\tconverged"
+    # if the predictor was split then we want the string to start with
+    # predictor_phecode and all the columns with the status_name should
+    # just say phecode_*
+    if predictor_output_flipped:
+        phecode_name_str = "predictor_phecode"
+    else:  # otherwise the string starts with phecode and uses the status name we provided
+        phecode_name_str = "phecode"
+
+    header_str = f"{phecode_name_str}\tphecode_description\tphecode_category\tcase_count\tcontrol_count\tconverged"
 
     header_str += f"\t{status_name}_pvalue"
     header_str += f"\t{status_name}_beta"
@@ -217,9 +239,10 @@ def _write_to_file(
     phecode_descriptions: dict[str, str],
     covar_list: list[str],
     results: DictProxy[Any, Any],
+    predictor_output_flipped: bool = False,
 ) -> None:
 
-    header = _generate_header(status_name, covar_list)
+    header = _generate_header(status_name, covar_list, predictor_output_flipped)
 
     output_filehandle.write(f"{header}\n")
 
@@ -274,6 +297,10 @@ def restrict_covars_to_specific_sex(
     else:
         output_df = covar_df.filter(pl.col(sex_col) == male_coding)
 
+    print(
+        f"restricting the cohort to {sex_option}, limited the cohort to {output_df.shape[0]} individuals"
+    )
+
     return output_df
 
 
@@ -315,7 +342,14 @@ def main() -> None:
         f"Using the following covariates in the analysis: {', '.join(args.covariate_list if args.covariate_list else '')}"
     )
     print(f"Using {args.cpus} cpus")
-    print(f"Variable of interest column name: {args.status_col}")
+
+    if not args.flip_predictor_and_outcome:
+        print(f"Variable of interest column name: {args.status_col}")
+    else:
+        print(
+            f"Using the column, {args.status_col}, as a predictor. Every phecode in the provided counts file, {args.counts}, will be used as a predictor"
+        )
+
     print(
         f"Requiring {args.min_phecode_count} occurences of the PheCode to be considered a case"
     )
@@ -341,6 +375,12 @@ def main() -> None:
 
     item_count = len(phecode_cases.keys())
 
+    # generating the analysis string for the model that will
+    # be passed to the regression
+    model_str = generate_model_str(
+        args.covariate_list, args.status_col, args.flip_predictor_and_outcome
+    )
+
     original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
     with (
         mp.get_context("spawn").Pool(processes=args.cpus) as pool,
@@ -352,14 +392,7 @@ def main() -> None:
         manager = mp.Manager()
         managed_dict = manager.dict()
 
-        # generating the analysis string for the model that will
-        # be passed to the regression
-        model_str = generate_model_str(
-            args.covariate_list, args.status_col, args.flip_predictor_and_outcome
-        )
-
         # running the logistic regression for multiple phecodes
-
         partial_func = partial(
             run_logit_regression,
             return_dictionary=managed_dict,
@@ -394,12 +427,22 @@ def main() -> None:
 
         print(f"Writing the results of the PheWAS to the file: {args.output}")
 
+        # if we are using the phecodes as the predictor then
+        # we want out non covariate columns to just be "phecode_*"
+        if args.flip_predictor_and_outcome:
+            status_col = "phecode"
+        # If we are using our case/control file as predictors then we will use
+        # the status column of interest that we said
+        else:
+            status_col = args.status_col
+
         _write_to_file(
             output_file,
-            args.status_col,
+            status_col,
             descriptions,
             args.covariate_list,
             managed_dict,
+            args.flip_predictor_and_outcome,
         )
 
     end_time = datetime.now()
