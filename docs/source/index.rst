@@ -6,22 +6,41 @@
 PyPheWAS documentation
 ======================
 
-**PyPheWAS** is my personal Python script for running PheWAS within Python. It is highly influenced by both the R `PheWAS package <https://github.com/PheWAS/PheWAS/>`_ and the Python `PheTK package <https://github.com/nhgritctran/PheTK>`_ package while *hopefully* providing some beneficial differences. This package allows users to run either a linear or logistic regression model for the PheWAS and uses modern Python libraries such as "polars" to bring better performance in larger datasets.
+**PyPheWAS** is my personal Python script for running PheWAS within Python. It is highly influenced by both the R `PheWAS package <https://github.com/PheWAS/PheWAS/>`_ and the Python `PheTK package <https://github.com/nhgritctran/PheTK>`_ while *hopefully* providing some beneficial differences. This package allows users to run either a linear or logistic regression model for the PheWAS and uses modern Python libraries such as "polars" to bring better performance in larger datasets.
 
 
 Installation:
 -------------
-This code is hosted on PYPI and can be installed using Pip. It is recommended to install the package into a virtual environment. The PyPheWAS-package only supports Python 3.11.1+ so make sure that you have this installed on your computer. The commands to do this are shown below
+This code is hosted on PYPI and can be installed using Pip or Conda. It is recommended to install the package into a virtual environment. The PyPheWAS-package only supports Python 3.11.1+ so make sure that you have this installed on your computer. The commands to do this are shown below.
 
-.. code:: python
+.. dropdown:: Installing with Pip
 
-  #Pip installation
-  python3 -m venv pyphewas-venv
+  .. code:: bash
 
-  source pyphewas-venv/bin/activate
+    #Pip installation
+    python3 -m venv pyphewas-venv
 
-  pip install pyphewas-package
+    source pyphewas-venv/bin/activate
 
+    pip install pyphewas-package
+
+
+.. dropdown:: Installing with Conda:
+  
+  .. code:: bash
+
+    #Create the conda environment
+    conda create -n phewas_env python=3.14
+
+    #Activating the environment
+    conda activate phewas_env
+
+    #Installing pyphewas-package
+    pip install pyphewas-package
+  
+  .. note::
+
+    Conda can sometimes be slow to resolve dependencies. If you find that this is your case, then you can replace Conda with Mamba and use the same commands.
 
 Using the PyPheWAS package:
 ---------------------------
@@ -31,13 +50,13 @@ The PyPheWAS package has 2 main functions explained below:
 
 .. note::
 
-  **Definition of case/control/exclusion status for each phecode:**
+  **Definition of case/control/exclusion status for each phecode in this documentation:**
 
-  Case/control/exclusion definition for each phecodes is performed using the following 3 steps:
+  Case/control/exclusion definition for each phecode is performed using the following 3 steps:
   
-  1. If an individual has the phecode in their record on 2+ unique dates then they are a case
+  1. If an individual has the phecode in their record on 2+ unique dates, then they are a case
 
-  2. If the individual has only 1 occurrence of the code in their record then they are excluded (This step is skipped if the user has lowered the minimum case threshold from 2 to 1)
+  2. If the individual has only 1 occurrence of the code in their record, then they are excluded (This step is skipped if the user has lowered the minimum case threshold from 2 to 1)
 
   3. All other individuals are classified as controls
 
@@ -66,7 +85,7 @@ The following command illustrates how to run a PheWAS for the provided test data
       --phecode-version None \
       --model logistic 
 
-To run a linear regression it is as simple as changing the model flag from "logistic" to "linear" as shown below. This will change the model from statsmodel.formula logit to the statsmodel.formula glm with the Gaussian family.
+To run a linear regression it is as simple as changing the model flag from "logistic" to "linear" as shown below. This will change the model from statsmodels.formula logit to the statsmodels.formula glm with the Gaussian family.
 
 .. code:: bash
 
@@ -86,7 +105,7 @@ To run a linear regression it is as simple as changing the model flag from "logi
 
 **Generating a Manhattan plot from the data**
 
-The PyPheWAS package also has the ability to generate a Manhattan plot from the output of the pyphewas command. The command below uses the output from the example pyphewas commands above to generate a (*bad in this case*) Manhattan plot. The user is expected to provide the name of the columns with the p-values and betas for the variable of interest.
+The PyPheWAS package also has the ability to generate a Manhattan plot from the output of the pyphewas command. The command below uses the output from the example pyphewas commands above to generate a Manhattan plot. The user is expected to provide the name of the columns with the p-values and betas for the variable of interest.
 
 .. code:: bash
 
@@ -99,7 +118,7 @@ The PyPheWAS package also has the ability to generate a Manhattan plot from the 
 
 .. note::
 
-  This functionality can also be used in a jupyter notebook. The different python functions used in the make_manhattan command are exposed through the package. This example only shows how to run the CLI command, but users can read more about running the code in a jupyter notebook in the "insert section here".
+  This functionality can also be used in a Jupyter notebook. The different Python functions used in the make_manhattan command are exposed through the package. This example only shows how to run the CLI command.
 
     
 
