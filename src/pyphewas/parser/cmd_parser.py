@@ -15,7 +15,9 @@ def generate_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--counts", type=Path, help="counts of each phecode that someone has"
+        "--counts",
+        type=Path,
+        help="counts of each phecode that someone has. This file is expected to have at least 3 columns and a header (Column names don't matter). The first column is the person id, the second column is the phecode id, and the third column is the count of the number of times the phecode appears in the individuals medical record. The first 3 colums must be in this order. All other columns after these three are ignored.",
     )
 
     parser.add_argument(

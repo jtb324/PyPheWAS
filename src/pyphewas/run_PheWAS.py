@@ -62,7 +62,7 @@ def read_in_cases_and_exclusions(
     with xopen(counts_file, "r") as counts:
         _ = next(counts)  # skip header line
         for line in counts:
-            person_id, phecode, count = line.strip().split(",")
+            person_id, phecode, count, *_ = line.strip().split(",")
             if int(count) >= min_phecode_count:
                 phecode_obj = return_dict.setdefault(
                     phecode, Phecode()
