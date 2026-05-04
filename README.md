@@ -4,7 +4,7 @@ A python script I use to run PheWAS analyses. Full Documentation can be found he
 
 ## Summary
 
-This repository contains a CLI tool implemented in python that can be used to run a PheWAS analysis. This script supports both PheCode 1.2 and PheCode X (read about each [here](https://phewascatalog.org/phewas/#home)). This package is based on the [PheTK](https://github.com/nhgritctran/PheTK) package but offers flexibility in the model that I wanted and has a more verbose output by reporting the betas and standard errors for all predictors. The PyPhewas-package supports both logistic and linear regression. Additionally, this package will use Firth Regression when a perfect separation error is encountered in the logistic model.
+This repository contains a CLI tool implemented in python that can be used to run a PheWAS analysis. This script supports both PheCode 1.2 and PheCode X (read about each [here](https://phewascatalog.org/phewas/#home)). This package is based on the [PheTK](https://github.com/nhgritctran/PheTK) package but offers flexibility in the model that I wanted and has a more verbose output by reporting the betas and standard errors for all predictors. The PyPhewas-package supports both logistic and linear regression.
 
 ## Installation
 
@@ -72,9 +72,15 @@ Although these arguments are not required for runtime, some combination of them 
 
 * **--sex-col**: Column name of the column in the covariate file containing Sex or Gender information. This flag is required if the '--run-sex-specific' flag was used. Values should be coded numerically as 0 or 1.
 
-* **--model**: Whether to run a linear model or a logistic model for the regression. Default value is 'logistic'. Allowed values are 'linear' and 'logistic'.
+* **--verbose** (or **-v**): Verbose flag indicating if the user wants more information. This is a counting flag, so adding more 'v's (e.g., -vv) will increase the verbosity level.
 
-* **--firth-max-iterations**: Maximum number of iterations to try for firth regression model to converge. Default value is 50.
+* **--log-to-console**: Optional flag to log output to the console in addition to the log file.
+
+* **--log-filename**: Name for the log output file. Default value is pyphewas.log.
+
+* **--version**: Show the program's version number and exit.
+
+* **--model**: Whether to run a linear model or a logistic model for the regression. Default value is 'logistic'. Allowed values are 'linear' and 'logistic'.
 
 # Example Command
 

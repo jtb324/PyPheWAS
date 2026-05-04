@@ -120,7 +120,7 @@ def test_linear_regression(tmp_path):
     assert output_file.stat().st_size > 0
 
 
-def test_firth_regression(tmp_path) -> None:
+def test_perfect_separation_handling(tmp_path) -> None:
     output_file = tmp_path / "perfect_separation_test.txt"
 
     cmd = [

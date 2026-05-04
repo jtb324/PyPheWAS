@@ -131,16 +131,31 @@ def generate_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--firth-max-iterations",
-        type=int,
-        default=200,
-        help="Maximum number of iterations to try for firth regression model to converge",
-    )
-
-    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s: {version('pyphewas-package')}",
+    )
+
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        default=0,
+        help="verbose flag indicating if the user wants more information",
+        action="count",
+    )
+
+    parser.add_argument(
+        "--log-to-console",
+        default=False,
+        help="Optional flag to log to only the console or also a file",
+        action="store_true",
+    )
+
+    parser.add_argument(
+        "--log-filename",
+        default="pyphewas.log",
+        type=str,
+        help="Name for the log output file. (default: %(default)s)",
     )
 
     return parser

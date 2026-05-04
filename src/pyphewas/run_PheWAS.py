@@ -10,6 +10,9 @@ from pathlib import Path
 from tqdm import tqdm
 import warnings
 import os
+from log import CustomLogger
+import logging
+from importlib.metadata import version
 
 # Make sure underlying libraries are using 1 thread to avoid livelocking
 os.environ["MKL_NUM_THREADS"] = "1"
@@ -20,7 +23,6 @@ os.environ["POLARS_MAX_THREADS"] = "1"
 
 import numpy as np
 from xopen import xopen
-from firthmodels import FirthLogisticRegression
 from patsy import dmatrices
 import multiprocessing as mp
 import statsmodels.formula.api as smf
@@ -34,7 +36,7 @@ import polars as pl
 from multiprocessing.managers import DictProxy
 
 from pyphewas.parser import generate_parser
-from pyphewas.model_formatters import format_results, format_firth_results, ModelResults
+from pyphewas.model_formatters import format_results, ModelResults
 
 # We want to treat the Runtime warning like a error so that we can catch it because it indicates the perfect separation error
 warnings.filterwarnings("error", category=RuntimeWarning)
@@ -42,6 +44,7 @@ warnings.filterwarnings("ignore", category=ConvergenceWarning)
 warnings.filterwarnings("error", category=PerfectSeparationWarning)
 # import pandas as pd
 # warnings.formatwarning(category=ConvergenceWarning)
+#
 
 
 @dataclass
@@ -51,7 +54,7 @@ class Phecode:
 
 
 def read_in_cases_and_exclusions(
-    counts_file: Path, min_phecode_count: int
+    counts_file: Path, min_phecode_count: int, logger: logging.Logger
 ) -> dict[str, Phecode]:
 
     return_dict = {}
@@ -71,13 +74,16 @@ def read_in_cases_and_exclusions(
                 phecode_obj = return_dict.setdefault(phecode, Phecode())
                 phecode_obj.exclusions.append(person_id)
 
-    print(f"Read in {len(return_dict)} phecodes from the counts file: {counts_file}")
+    logger.info(
+        f"Read in {len(return_dict)} phecodes from the counts file: {counts_file}"
+    )
     return return_dict
 
 
 def generate_model_str(
     covar_list: list[str] | None,
     status_col: str,
+    logger: logging.Logger,
     flip_predictor_and_outcome: bool = False,
 ) -> str:
     # build the model string where the phecode status is the
@@ -94,7 +100,7 @@ def generate_model_str(
         joined_covars = " + ".join(covar_list)
         analysis_str = f"{analysis_str} + {joined_covars}"
 
-    print(f"model being used: {analysis_str}")
+    logger.info(f"model being used: {analysis_str}")
     return analysis_str
 
 
@@ -102,7 +108,6 @@ def generate_model_str(
 class RegressionResults:
     model_type: str
     result: ModelResults
-    firth_used: bool
     err: Exception | None
 
 
@@ -132,12 +137,10 @@ def run_regression(
         result = {}
         error = e
 
-    return RegressionResults(
-        model_type=regression_model, result=result, err=error, firth_used=False
-    )
+    return RegressionResults(model_type=regression_model, result=result, err=error)
 
 
-def check_err(error_obj: Exception) -> int:
+def check_err(error_obj: Exception, logger: logging.Logger) -> int:
     """look at the exception and decide whether the program can continue or if it needs to fail"""
     # If a perfect separation error occurs then we
     if (
@@ -147,62 +150,8 @@ def check_err(error_obj: Exception) -> int:
     ):
         return 0
     else:
+        logger.critical(f"Encountered unexpected error: {str(error_obj)}")
         raise error_obj
-
-
-def run_firth_regression(
-    model_eq: str, data: pl.DataFrame, max_iters: int
-) -> RegressionResults:
-    """firth regression model if the program encounters a perfect
-    separation error. The function uses patsy to create the inputs
-    correctly and then runs the firth regression
-
-    Parameters
-    ----------
-    model_eq : str
-        This is the regression equation that is formed
-        generate_model_str function
-
-    data : pl.DataFrame
-        This is the covariate file that also has the phecode predictor and the outcome
-
-    max_iters : int
-        maximum number of iterations to try to get the regression model to
-        converge. If it doesn't converge after these iterations then the
-        model throws a ConvergenceWarning
-
-    Returns
-    -------
-    RegressionResults
-    """
-
-    data_df = data.to_pandas()
-
-    # dmatrics is from patsy and will automatically generate two
-    # matrices for the X and y inputs in the firth regression model
-    outcomes, predictors = dmatrices(model_eq, data_df)
-
-    try:
-        with warnings.catch_warnings():
-            warnings.filterwarnings("error", category=SklearnConvergenceWarning)
-            firth_model = FirthLogisticRegression(
-                max_iters=max_iters, fit_intercept=False
-            ).fit(predictors, outcomes.ravel())
-
-        feature_names = predictors.design_info.column_names
-
-        result = format_firth_results(firth_model, feature_names)
-        error = None
-    except SklearnConvergenceWarning as e:
-        result = {}
-        error = e
-    except Exception as e:
-        result = {}
-        error = e
-
-    return RegressionResults(
-        model_type="firth", result=result, err=error, firth_used=True
-    )
 
 
 def identify_separation_source(
@@ -254,7 +203,7 @@ def run_phewas(
     sample_colname: str,
     min_case_count: int,
     max_iteration_threshold: int,
-    max_firth_iterations: int,
+    logger: logging.Logger,
     regression_model: str = "logistic",
 ) -> None:
     """method to run regress for the phenotype of interest
@@ -286,10 +235,6 @@ def run_phewas(
         maximum number of iterations for the model to converge.
         This value can be increased if a large number of the
         regressions don't converge
-
-    max_firth_iterations : int
-        maximum number of iterations for the FirthLogisticRegression
-        model to converge.
 
     regression_mode : str
         string indicating whether we are trying to run a
@@ -345,30 +290,23 @@ def run_phewas(
 
     if results.err is not None and regression_model == "logistic":
 
-        _ = check_err(results.err)
+        _ = check_err(results.err, logger)
 
         sep_col = identify_separation_source(covariates_df, analysis_str)
         if sep_col:
-            print(
+            logger.error(
                 f"Perfect separation encountered for the phecode {phecode_name} due to covariate: {sep_col}. Moving to next phecode."
             )
             return
 
-        print(f"Using firth regression for the phecode, {phecode_name}.")
-
-        results = run_firth_regression(
-            analysis_str, covariates_df, max_firth_iterations
-        )
-
     if results.err is not None:
-        print(
+        logger.error(
             f"Perfect separation encountered for the phecode {phecode_name}. There were {case_count} cases and {control_count} controls for the phecode."
         )
 
         return
 
     # Lets add the counts to the results dictionary
-    results.result["firth"] = results.firth_used
     results.result["case_count"] = case_count
     results.result["control_count"] = control_count
     results.result["exclusion_count"] = exclusion_count
@@ -387,7 +325,7 @@ def _generate_header(
     else:  # otherwise the string starts with phecode and uses the status name we provided
         phecode_name_str = "phecode"
 
-    header_str = f"{phecode_name_str}\tphecode_description\tphecode_category\tcase_count\tcontrol_count\texclusion_count\tconverged\tfirth"
+    header_str = f"{phecode_name_str}\tphecode_description\tphecode_category\tcase_count\tcontrol_count\texclusion_count\tconverged"
 
     header_str += f"\t{status_name}_pvalue"
     header_str += f"\t{status_name}_beta"
@@ -420,7 +358,7 @@ def _write_to_file(
             phecode_name, ("N/A", "N/A")
         )
 
-        output_str = f"{phecode_name}\t{phecode_description}\t{category}\t{phecode_results.get('case_count', 'N/A')}\t{phecode_results.get('control_count', 'N/A')}\t{phecode_results.get('exclusion_count', 'N/A')}\t{phecode_results.get('converged', 'N/A')}\t{phecode_results.get('firth', 'N/A')}"
+        output_str = f"{phecode_name}\t{phecode_description}\t{category}\t{phecode_results.get('case_count', 'N/A')}\t{phecode_results.get('control_count', 'N/A')}\t{phecode_results.get('exclusion_count', 'N/A')}\t{phecode_results.get('converged', 'N/A')}"
 
         # lets add all the values for the status to the string first
 
@@ -436,7 +374,9 @@ def _write_to_file(
         output_filehandle.write(f"{output_str}\n")
 
 
-def read_in_phecode_descriptions(descriptions_filepath: Path | None) -> dict[str, str]:
+def read_in_phecode_descriptions(
+    descriptions_filepath: Path | None, logger: logging.Logger
+) -> dict[str, str]:
     description_dict = {}
 
     if descriptions_filepath:
@@ -447,6 +387,9 @@ def read_in_phecode_descriptions(descriptions_filepath: Path | None) -> dict[str
                 phecode, _, _, phecode_str, _, category, *_ = row
 
                 description_dict[phecode] = (phecode_str, category)
+
+        logger.debug(f"Read in descriptions for {len(description_dict)} phecodes")
+
     return description_dict
 
 
@@ -520,8 +463,20 @@ def main() -> None:
             f"detected that the sex or gender column, {args.sex_col}, was also passed as a covariate. If you are trying to run a sex specific analysis please make sure you remove the sex or gender column from the analysis."
         )
 
+    # Create teh logger that will be used throughou the program
+    logger = CustomLogger.create_logger()
+
+    logger.configure(
+        args.output.parent, args.log_filename, args.verbose, args.log_to_console
+    )
+
+    logger.info(f"PyPhewas: v{version('pyphewas-package')}")
+
     # getting the programs start time
     start_time = datetime.now()
+    logger.info(f"Analysis started at {start_time}")
+
+    logger.record_namespace(args)
     # we need to determine the correct path for the phecode descriptions.
     # We can store this values in config file
     if not args.phecode_descriptions and args.phecode_version in [
@@ -537,7 +492,7 @@ def main() -> None:
                     main_filepath.parent / configs[args.phecode_version]
                 )
             except KeyError:
-                print(
+                logger.critical(
                     f"The provided phecode version, {args.phecode_version} is not allowed. Please provide a value of either 'phecodeX', 'phecode1.2', or 'phecodeX_who' spelled exactly as shown here"
                 )
                 sys.exit(1)
@@ -546,67 +501,71 @@ def main() -> None:
     # will not have any phecode descriptions
     elif not args.phecode_descriptions and args.phecode_version == "None":
         phecode_descriptions = None
+        logger.verbose("No phecode description file provided")
     else:
         phecode_descriptions = args.phecode_descriptions
 
-    print(f"{35*'~'}  PheWAS  {35*'~'}")
-    print(f"Analysis start time: {start_time}")
-    print(
+    logger.verbose(f"Using the phecodes description file: {phecode_descriptions}")
+
+    logger.info(f"{32*'~'}  starting phewas  {32*'~'}")
+    logger.info(
         f"Using the following covariates in the analysis: {', '.join(args.covariate_list if args.covariate_list else '')}"
     )
-    print(f"Using {args.cpus} cpus")
 
     if not args.flip_predictor_and_outcome:
-        print(f"Variable of interest column name: {args.status_col}")
+        logger.info(f"Variable of interest column name: {args.status_col}")
     else:
-        print(
+        logger.info(
             f"Using the column, {args.status_col}, as the outcome. Every phecode in the provided counts file, {args.counts}, will be used as a predictor"
         )
 
-    print(
+    logger.info(
         f"Requiring {args.min_phecode_count} occurences of the PheCode to be considered a case"
     )
-    print(
+    logger.info(
         f"Requiring {args.min_case_count} cases for a phecode to be included in the analysis"
     )
-    print(
+    logger.info(
         f"Using a maximum number of {args.max_iterations} iterations for the {args.model} regression model"
     )
-    if args.model == "logistic":
-        print(
-            f"Using a maximum number of {args.firth_max_iterations} iterations for the firth regression model when perfect separation is encountered"
-        )
-    print(f"{80*'~'}\n")
-    print(f"Loading in the phecode descriptions found here: {phecode_descriptions}")
+    logger.info(f"{80*'~'}\n")
 
-    descriptions = read_in_phecode_descriptions(phecode_descriptions)
+    descriptions = read_in_phecode_descriptions(phecode_descriptions, logger)
 
-    phecode_cases = read_in_cases_and_exclusions(args.counts, args.min_phecode_count)
+    phecode_cases = read_in_cases_and_exclusions(
+        args.counts, args.min_phecode_count, logger
+    )
 
+    logger.verbose(f"reading in the covariates file: {args.covariate_file}")
     covariates_df = pl.read_csv(args.covariate_file)
 
     # Make a function here that checks if the correct columns are in the covariates df
     if check_for_correct_cols(covariates_df, args.covariate_list):
         err_msg = f"Error not all of the covariate columns that the user provided, {args.covariate_list}, were found in the covariate df"
+        logger.critical(err_msg)
         raise ValueError(err_msg)
 
     if args.run_sex_specific:
-        print(f"Restricting the covariates file to {args.run_sex_specific}")
+        logger.info(f"Restricting the covariates file to {args.run_sex_specific}")
         covariates_df = restrict_covars_to_specific_sex(
             covariates_df, args.run_sex_specific, args.sex_col, args.male_as_one
         )
 
-    print("initializing multiprocessing" * (min(args.cpus - 1, 1)))
+    # I am doing a fancy trick where if the number of CPUs == 1 then the right min function
+    # will evaluate to 0 and will create an empty string when you multiply to the string. If
+    # the value is anything other than 0, then the message prints
+    logger.info("initializing multiprocessing" * (min(args.cpus - 1, 1)))
 
     item_count = len(phecode_cases.keys())
 
     # generating the analysis string for the model that will
     # be passed to the regression
     model_str = generate_model_str(
-        args.covariate_list, args.status_col, args.flip_predictor_and_outcome
+        args.covariate_list, args.status_col, logger, args.flip_predictor_and_outcome
     )
 
     original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
+
     with (
         mp.get_context("spawn").Pool(maxtasksperchild=50, processes=args.cpus) as pool,
         xopen(args.output, "w") as output_file,
@@ -626,7 +585,7 @@ def main() -> None:
             sample_colname=args.sample_col,
             min_case_count=args.min_case_count,
             max_iteration_threshold=args.max_iterations,
-            max_firth_iterations=args.firth_max_iterations,
+            logger=logger,
             regression_model=args.model,
         )
         try:
@@ -635,9 +594,9 @@ def main() -> None:
             ):
                 pbar.update()
         except KeyboardInterrupt:
-            print("Detected a keyboard interuption. Ending program now")
+            logger.critical("Detected a keyboard interuption. Ending program now")
             pool.terminate()
-            print(f"{30 * '~'}  PheWAS Finished!  {30 * '~'}")
+            logger.info(f"{30 * '~'}  PheWAS Finished!  {30 * '~'}")
             sys.exit(1)
         else:
             pool.close()
@@ -646,15 +605,15 @@ def main() -> None:
         phecodes_tested = len(managed_dict)
 
         if phecodes_tested == 0:
-            print("No phecodes were successfully tested. terminating program")
+            logger.critical("No phecodes were successfully tested. terminating program")
             sys.exit(1)
         else:
             bonferroni = 0.05 / phecodes_tested
-        print(
+        logger.info(
             f"recommend Bonferroni correction: {bonferroni} or {-np.log10(bonferroni)} on a -log10 scale"
         )
 
-        print(f"Writing the results of the PheWAS to the file: {args.output}")
+        logger.info(f"Writing the results of the PheWAS to the file: {args.output}")
 
         # if we are using the phecodes as the predictor then
         # we want out non covariate columns to just be "phecode_*"
@@ -675,9 +634,9 @@ def main() -> None:
         )
 
     end_time = datetime.now()
-    print(f"program finished at {end_time}")
-    print(f"total runtime: {end_time - start_time}")
-    print(f"{30 * '~'}  PheWAS Finished!  {30 * '~'}")
+    logger.info(f"program finished at {end_time}")
+    logger.info(f"total runtime: {end_time - start_time}")
+    logger.info(f"{30 * '~'}  PheWAS Finished!  {30 * '~'}")
 
 
 if __name__ == "__main__":

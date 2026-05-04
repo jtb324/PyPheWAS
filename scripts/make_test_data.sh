@@ -41,7 +41,7 @@ python3 $PYTHON_SCRIPT \
 
 echo "generating binary phenotype with an example of perfect separation"
 
-# This command will ensure that there is perfect separation for a phenotype to test firth regression
+# This command will ensure that there is perfect separation for a phenotype to test error handling
 python3 $PYTHON_SCRIPT \
   --sample-count 10000 \
   --phecode-count 30 \

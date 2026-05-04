@@ -6,7 +6,7 @@ The script allows for fine-grained control over the data generation process, inc
 - Setting the sample size and number of phecodes.
 - Choosing between binary (case/control) or continuous (dosage) predictors.
 - Injecting statistical signals into specific phecodes.
-- Creating scenarios with "perfect separation" to test robust statistical methods (e.g., Firth regression).
+- Creating scenarios with "perfect separation" to test error handling logic.
 - Controlling phecode prevalence to test filtering logic.
 - Visualizing demographic distributions (Age/Sex).
 
@@ -100,7 +100,7 @@ python generate_test_data.py \
 ```
 
 ### Generate Data with Perfect Separation
-Creates a dataset specifically to test Firth regression or other penalized methods. Phecode 10 will have perfect separation with the predictor.
+Creates a dataset specifically to test how the pipeline handles perfect separation. Phecode 10 will have perfect separation with the predictor.
 
 ```bash
 python generate_test_data.py \

@@ -59,9 +59,16 @@ PheWAS Inputs:
 
 * **--male-as-one**: If the '--run-sex-specific' flag is used, then this flag also has to be passed indicating if males were coded as 1 and females as 0 or vice versa. You could pass this flag as '--male-as-one' to indicate that males were coded as 1. The default value is True although this flag will be ignored if the '--run-sex-specific' flag is not provided.
 
-* **--sex-col**: Column name of the column in the covariate field containing Sex or Gender information. This flag is required if the '--run-sex-specific' flag was used. 
+* **--sex-col**: Column name of the column in the covariate field containing Sex or Gender information. This flag is required if the '--run-sex-specific' flag was used.
 
-* **--firth-max-iterations**: Maximum number of iterations for the firth regression model to converge. If the model encounters perfect separation, it switches to firth regression. Default value is 50.
+* **--verbose** (or **-v**): Verbose flag indicating if the user wants more information. This is a counting flag, so adding more 'v's (e.g., -vv) will increase the verbosity level.
+
+* **--log-to-console**: Optional flag to log output to the console in addition to the log file.
+
+* **--log-filename**: Name for the log output file. Default value is pyphewas.log.
+
+* **--version**: Show the program's version number and exit.
+
 
 
 
@@ -82,9 +89,8 @@ This command outputs a text file that has the results for each phecode run in th
 
 * **converged**: Whether or not the regression model converged for this specific phecode. 
 
-* **firth**: Boolean value indicating whether firth regression was used for the analysis (True/False). When PyPheWAS is run using a continuous variable, this value should always be false.
-
-The next three columns are the output statistics for the model. Three columns are made for every term in your model. This means that if you had three independent variables, then you would have 9 additional output columns.
+The next three columns are the output statistics for the model.
+ Three columns are made for every term in your model. This means that if you had three independent variables, then you would have 9 additional output columns.
 
 * **\*pvalue**: P-value calculated by the regression model.
 
