@@ -17,6 +17,7 @@ dependencies = [
     "pyarrow>=22.0.0",
     "patsy>=1.0.2",
     "modified-logger>=1.1.2",
+    "scikit-learn>=1.8.0",
 ]
 requires-python = ">3.11.0"
 readme = "README.md"
